@@ -9,15 +9,6 @@ typedef unsigned __int128 uint128_t;
 #define NF_NETLINK_CONNTRACK_ALL (NF_NETLINK_CONNTRACK_NEW|NF_NETLINK_CONNTRACK_UPDATE|NF_NETLINK_CONNTRACK_DESTROY)
 #define NF_NETLINK_CONNTRACK_EXP_ALL (NF_NETLINK_CONNTRACK_EXP_UPDATE|NF_NETLINK_CONNTRACK_EXP_UPDATE|NF_NETLINK_CONNTRACK_EXP_DESTROY)
 
-// BEGIN: _nfnl_method
-
-enum _nfnl_method {
-    NFNL_METHOD_QUERY,
-    NFNL_METHOD_SEND,
-};
-
-// END: _nfnl_method
-
 // BEGIN: _nf_conntrack_attr_spec
 
 typedef struct {
@@ -439,6 +430,9 @@ static int NetfilterConntrackHandle_ct_callback (enum nf_conntrack_msg_type type
     PyObject* type;
     NetfilterConntrackConntrack* conntrack;
 
+    PyObject* result_object;
+    int result_value = NFCT_CB_STOP;
+
     self = (NetfilterConntrackHandle*) data;
 
     if (self->callback_ct) {
@@ -450,14 +444,28 @@ static int NetfilterConntrackHandle_ct_callback (enum nf_conntrack_msg_type type
 
         conntrack->conntrack = ct;
         args = PyTuple_Pack(2, type, conntrack);
-        PyObject_CallObject(self->callback_ct, args);
+        result_object = PyObject_CallObject(self->callback_ct, args);
+
+        if (!PyInt_Check(result_object)) {
+            Py_DECREF(result_object);
+            Py_DECREF(args);
+
+            Py_DECREF(conntrack);
+            Py_DECREF(type);
+
+            return result_value;
+        }
+
+        result_value = (int) PyInt_AsLong(result_object);
+
+        Py_DECREF(result_object);
         Py_DECREF(args);
 
         Py_DECREF(conntrack);
         Py_DECREF(type);
     }
 
-    return NFCT_CB_CONTINUE;
+    return result_value;
 }
 
 static PyObject* NetfilterConntrackHandle_ct_callback_set (NetfilterConntrackHandle* self, PyTupleObject* args) {
@@ -504,63 +512,31 @@ static PyObject* NetfilterConntrackHandle_ct_callback_clear (NetfilterConntrackH
     Py_RETURN_NONE;
 }
 
-static PyObject* _NetfilterConntrackHandle_ct_nfnl_conntrack (NetfilterConntrackHandle* self, enum _nfnl_method method, enum nf_conntrack_query query, PyObject* data) {
+static PyObject* _NetfilterConntrackHandle_ct_send_conntrack (NetfilterConntrackHandle* self, enum nf_conntrack_query query, PyObject* data) {
     NetfilterConntrackConntrack* conntrack;
-    int ret;
-
     if (Py_TYPE(data) != &NetfilterConntrackConntrackType) {
         PyErr_SetString(PyExc_ValueError, "Parameters must be (enum nf_conntrack_query query, NetfilterConntrackConntrack data)");
         return NULL;
     }
-
     conntrack = (NetfilterConntrackConntrack*) data;
-
-    switch (method) {
-        case NFNL_METHOD_QUERY:
-            ret = nfct_query(self->handle, query, conntrack->conntrack);
-            break;
-        case NFNL_METHOD_SEND:
-            ret = nfct_send(self->handle, query, conntrack->conntrack);
-            break;
-        default:
-            PyErr_SetString(PyExc_ValueError, "Invalid conntrack nfnl method");
-            return NULL;
-    }
-
-    if (!ret)
+    if (!nfct_send(self->handle, query, conntrack->conntrack))
         Py_RETURN_TRUE;
     Py_RETURN_FALSE;
 }
 
-static PyObject* _NetfilterConntrackHandle_ct_nfnl_family (NetfilterConntrackHandle* self, enum _nfnl_method method, enum nf_conntrack_query query, PyObject* data) {
+static PyObject* _NetfilterConntrackHandle_ct_send_family (NetfilterConntrackHandle* self, enum nf_conntrack_query query, PyObject* data) {
     uint32_t family;
-    int ret;
-
     if (!PyNumber_Check(data)) {
         PyErr_SetString(PyExc_ValueError, "Parameters must be (enum nf_conntrack_query query, uint32_t data)");
         return NULL;
     }
-
     family = (uint32_t) PyInt_AsLong(data);
-
-    switch (method) {
-        case NFNL_METHOD_QUERY:
-            ret = nfct_query(self->handle, query, &family);
-            break;
-        case NFNL_METHOD_SEND:
-            ret = nfct_send(self->handle, query, &family);
-            break;
-        default:
-            PyErr_SetString(PyExc_ValueError, "Invalid conntrack nfnl method");
-            return NULL;
-    }
-
-    if (!ret)
+    if (!nfct_send(self->handle, query, &family))
         Py_RETURN_TRUE;
     Py_RETURN_FALSE;
 }
 
-static PyObject* _NetfilterConntrackHandle_ct_nfnl (NetfilterConntrackHandle* self, enum _nfnl_method method, PyTupleObject* args) {
+static PyObject* NetfilterConntrackHandle_ct_send (NetfilterConntrackHandle* self, PyTupleObject* args) {
     uint32_t query;
     PyObject* data;
 
@@ -575,31 +551,15 @@ static PyObject* _NetfilterConntrackHandle_ct_nfnl (NetfilterConntrackHandle* se
         case NFCT_Q_DESTROY:
         case NFCT_Q_GET:
         case NFCT_Q_CREATE_UPDATE:
-            return _NetfilterConntrackHandle_ct_nfnl_conntrack(self, method, (enum nf_conntrack_query) query, data);
+            return _NetfilterConntrackHandle_ct_send_conntrack(self, (enum nf_conntrack_query) query, data);
         case NFCT_Q_FLUSH:
         case NFCT_Q_DUMP:
         case NFCT_Q_DUMP_RESET:
-            return _NetfilterConntrackHandle_ct_nfnl_family(self, method, (enum nf_conntrack_query) query, data);
+            return _NetfilterConntrackHandle_ct_send_family(self, (enum nf_conntrack_query) query, data);
     }
 
     PyErr_SetString(PyExc_ValueError, "Unsupported query operation specified");
     return NULL;
-}
-
-static PyObject* NetfilterConntrackHandle_ct_query (NetfilterConntrackHandle* self, PyTupleObject* args) {
-    return _NetfilterConntrackHandle_ct_nfnl(self, NFNL_METHOD_QUERY, args);
-}
-
-static PyObject* NetfilterConntrackHandle_ct_send (NetfilterConntrackHandle* self, PyTupleObject* args) {
-    return _NetfilterConntrackHandle_ct_nfnl(self, NFNL_METHOD_SEND, args);
-}
-
-static PyObject* NetfilterConntrackHandle_ct_catch (NetfilterConntrackHandle* self) {
-    int ret;
-    ret = nfct_catch(self->handle);
-    if (!ret)
-        Py_RETURN_TRUE;
-    Py_RETURN_FALSE;
 }
 
 static int NetfilterConntrackHandle_exp_callback (enum nf_conntrack_msg_type type_exp, struct nf_expect* exp, void* data) {
@@ -608,6 +568,9 @@ static int NetfilterConntrackHandle_exp_callback (enum nf_conntrack_msg_type typ
 
     PyObject* type;
     NetfilterConntrackExpect* expect;
+
+    PyObject* result_object;
+    int result_value = NFCT_CB_FAILURE;
 
     self = (NetfilterConntrackHandle*) data;
 
@@ -620,14 +583,29 @@ static int NetfilterConntrackHandle_exp_callback (enum nf_conntrack_msg_type typ
 
         expect->expect = expect;
         args = PyTuple_Pack(2, type, expect);
-        PyObject_CallObject(self->callback_exp, args);
+        result_object = PyObject_CallObject(self->callback_exp, args);
+
+        if (!PyInt_Check(result_object)) {
+            Py_DECREF(result_object);
+            Py_DECREF(args);
+
+            Py_DECREF(expect);
+            Py_DECREF(type);
+
+            PyErr_SetString(PyExc_ValueError, "Callback return value must be an integer");
+            return result_value;
+        }
+
+        result_value = (int) PyInt_AsLong(result_object);
+
+        Py_DECREF(result_object);
         Py_DECREF(args);
 
         Py_DECREF(expect);
         Py_DECREF(type);
     }
 
-    return NFCT_CB_CONTINUE;
+    return result_value;
 }
 
 static PyObject* NetfilterConntrackHandle_exp_callback_set (NetfilterConntrackHandle* self, PyTupleObject* args) {
@@ -674,63 +652,31 @@ static PyObject* NetfilterConntrackHandle_exp_callback_clear (NetfilterConntrack
     Py_RETURN_NONE;
 }
 
-static PyObject* _NetfilterConntrackHandle_exp_nfnl_conntrack (NetfilterConntrackHandle* self, enum _nfnl_method method, enum nf_conntrack_query query, PyObject* data) {
+static PyObject* _NetfilterConntrackHandle_exp_send_conntrack (NetfilterConntrackHandle* self, enum nf_conntrack_query query, PyObject* data) {
     NetfilterConntrackExpect* expect;
-    int ret;
-
     if (Py_TYPE(data) != &NetfilterConntrackExpectType) {
         PyErr_SetString(PyExc_ValueError, "Parameters must be (enum nf_conntrack_query query, NetfilterConntrackExpect data)");
         return NULL;
     }
-
     expect = (NetfilterConntrackExpect*) data;
-
-    switch (method) {
-        case NFNL_METHOD_QUERY:
-            ret = nfexp_query(self->handle, query, expect->expect);
-            break;
-        case NFNL_METHOD_SEND:
-            ret = nfexp_send(self->handle, query, expect->expect);
-            break;
-        default:
-            PyErr_SetString(PyExc_ValueError, "Invalid expect nfnl method");
-            return NULL;
-    }
-
-    if (!ret)
+    if (!nfexp_send(self->handle, query, expect->expect))
         Py_RETURN_TRUE;
     Py_RETURN_FALSE;
 }
 
-static PyObject* _NetfilterConntrackHandle_exp_nfnl_family (NetfilterConntrackHandle* self, enum _nfnl_method method, enum nf_conntrack_query query, PyObject* data) {
+static PyObject* _NetfilterConntrackHandle_exp_send_family (NetfilterConntrackHandle* self, enum nf_conntrack_query query, PyObject* data) {
     uint32_t family;
-    int ret;
-
     if (!PyNumber_Check(data)) {
         PyErr_SetString(PyExc_ValueError, "Parameters must be (enum nf_conntrack_query query, uint32_t data)");
         return NULL;
     }
-
     family = (uint32_t) PyInt_AsLong(data);
-
-    switch (method) {
-        case NFNL_METHOD_QUERY:
-            ret = nfexp_query(self->handle, query, &family);
-            break;
-        case NFNL_METHOD_SEND:
-            ret = nfexp_send(self->handle, query, &family);
-            break;
-        default:
-            PyErr_SetString(PyExc_ValueError, "Invalid expect nfnl method");
-            return NULL;
-    }
-
-    if (!ret)
+    if (!nfexp_send(self->handle, query, &family))
         Py_RETURN_TRUE;
     Py_RETURN_FALSE;
 }
 
-static PyObject* _NetfilterConntrackHandle_exp_nfnl (NetfilterConntrackHandle* self, enum _nfnl_method method, PyTupleObject* args) {
+static PyObject* NetfilterConntrackHandle_exp_send (NetfilterConntrackHandle* self, PyTupleObject* args) {
     uint32_t query;
     PyObject* data;
 
@@ -744,30 +690,53 @@ static PyObject* _NetfilterConntrackHandle_exp_nfnl (NetfilterConntrackHandle* s
         case NFCT_Q_CREATE_UPDATE:
         case NFCT_Q_GET:
         case NFCT_Q_DESTROY:
-            return _NetfilterConntrackHandle_exp_nfnl_conntrack(self, method, (enum nf_conntrack_query) query, data);
+            return _NetfilterConntrackHandle_exp_send_conntrack(self, (enum nf_conntrack_query) query, data);
         case NFCT_Q_FLUSH:
         case NFCT_Q_DUMP:
-            return _NetfilterConntrackHandle_exp_nfnl_family(self, method, (enum nf_conntrack_query) query, data);
+            return _NetfilterConntrackHandle_exp_send_family(self, (enum nf_conntrack_query) query, data);
     }
 
     PyErr_SetString(PyExc_ValueError, "Unsupported query operation specified");
     return NULL;
 }
 
-static PyObject* NetfilterConntrackHandle_exp_query (NetfilterConntrackHandle* self, PyTupleObject* args) {
-    return _NetfilterConntrackHandle_exp_nfnl(self, NFNL_METHOD_QUERY, args);
-}
+static PyObject* NetfilterConntrackHandle_handle (NetfilterConntrackHandle* self, PyTupleObject* args) {
+    PyStringObject* data;
+    unsigned char* data_str;
+    unsigned int data_len;
+    PyObject* address;
+    uint32_t address_pid;
+    uint32_t address_type;
 
-static PyObject* NetfilterConntrackHandle_exp_send (NetfilterConntrackHandle* self, PyTupleObject* args) {
-    return _NetfilterConntrackHandle_exp_nfnl(self, NFNL_METHOD_SEND, args);
-}
+    if (!PyArg_ParseTuple((PyObject*) args, "SO", &data, &address)) {
+        PyErr_SetString(PyExc_ValueError, "Parameters must be (string data, tuple address (uint32_t pid, uint32_t type))");
+        return NULL;
+    }
 
-static PyObject* NetfilterConntrackHandle_exp_catch (NetfilterConntrackHandle* self) {
-    int ret;
-    ret = nfexp_catch(self->handle);
-    if (!ret)
-        Py_RETURN_TRUE;
-    Py_RETURN_FALSE;
+    if (!PyTuple_Check(address)) {
+        PyErr_SetString(PyExc_ValueError, "Parameters must be (string data, tuple address (uint32_t pid, uint32_t type))");
+        return NULL;
+    }
+
+    if (!PyArg_ParseTuple(address, "II", &address_pid, &address_type)) {
+        PyErr_SetString(PyExc_ValueError, "Parameters must be (string data, tuple address (uint32_t pid, uint32_t type))");
+        return NULL;
+    }
+
+    data_str = PyString_AsString(data);
+    data_len = PyString_Size(data);
+
+    if (data_len <= 0) {
+        PyErr_SetString(PyExc_ValueError, "Message has invalid length (message is empty)");
+        return NULL;
+    }
+
+    if (address_pid != 0) {
+        PyErr_SetString(PyExc_ValueError, "Invalid message source (message did not come from kernel)");
+        return NULL;
+    }
+
+    return PyInt_FromLong((long) nfnl_process(nfct_nfnlh(self->handle), data_str, data_len));
 }
 
 static PyObject* NetfilterConntrackHandle_fd (NetfilterConntrackHandle* self) {
@@ -801,14 +770,11 @@ static PyMemberDef NetfilterConntrackHandle_members[] = {
 static PyMethodDef NetfilterConntrackHandle_methods[] = {
     {"ct_callback_set", (PyCFunction) NetfilterConntrackHandle_ct_callback_set, METH_VARARGS, NULL},
     {"ct_callback_clear", (PyCFunction) NetfilterConntrackHandle_ct_callback_clear, METH_NOARGS, NULL},
-    {"ct_query", (PyCFunction) NetfilterConntrackHandle_ct_query, METH_VARARGS, NULL},
     {"ct_send", (PyCFunction) NetfilterConntrackHandle_ct_send, METH_VARARGS, NULL},
-    {"ct_catch", (PyCFunction) NetfilterConntrackHandle_ct_catch, METH_NOARGS, NULL},
     {"exp_callback_set", (PyCFunction) NetfilterConntrackHandle_exp_callback_set, METH_VARARGS, NULL},
     {"exp_callback_clear", (PyCFunction) NetfilterConntrackHandle_exp_callback_clear, METH_NOARGS, NULL},
-    {"exp_query", (PyCFunction) NetfilterConntrackHandle_exp_query, METH_VARARGS, NULL},
     {"exp_send", (PyCFunction) NetfilterConntrackHandle_exp_send, METH_VARARGS, NULL},
-    {"exp_catch", (PyCFunction) NetfilterConntrackHandle_exp_catch, METH_NOARGS, NULL},
+    {"handle", (PyCFunction) NetfilterConntrackHandle_handle, METH_VARARGS, NULL},
     {"fd", (PyCFunction) NetfilterConntrackHandle_fd, METH_NOARGS, NULL},
     {"close", (PyCFunction) NetfilterConntrackHandle_close, METH_NOARGS, NULL},
     {NULL}
