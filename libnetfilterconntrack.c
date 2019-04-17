@@ -1,6 +1,8 @@
 #include <Python.h>
 #include <structmember.h>
 
+#include <string.h>
+
 #include <libnetfilter_conntrack/libnetfilter_conntrack.h>
 
 typedef __int128 int128_t;
@@ -48,22 +50,148 @@ static PyObject* _nf_conntrack_attr_spec_dict_new (_nf_conntrack_attr_spec attrs
 
 static uint8_t _nf_conntrack_attr_spec_dict_get (PyObject* attr_dict, PyObject* attr_name, uint32_t* attr_type, uint8_t* attr_size) {
     PyObject* attr_value = NULL;
-
-    if (attr_dict == NULL)
-        return 0;
-
-    attr_value = PyDict_GetItem(attr_dict, attr_name);
-
-    if (attr_value == NULL)
-        return 0;
-
-    *attr_type = (uint32_t) PyInt_AsLong(PyTuple_GetItem(attr_value, 0));
-    *attr_size = (uint8_t) PyInt_AsLong(PyTuple_GetItem(attr_value, 1));
-
-    return 1;
+    if (attr_dict && PyDict_Contains(attr_dict, attr_name)) {
+        attr_value = PyDict_GetItem(attr_dict, attr_name);
+        if (attr_value) {
+            *attr_type = (uint32_t) PyInt_AsLong(PyTuple_GetItem(attr_value, 0));
+            *attr_size = (uint8_t) PyInt_AsLong(PyTuple_GetItem(attr_value, 1));
+            return 1;
+        }
+    }
+    return 0;
 }
 
 // END: _nf_conntrack_attr_spec
+
+// BEGIN: NetfilterConntrackTuple
+
+typedef struct {
+    PyObject_HEAD
+    struct nf_conntrack* tuple;
+} NetfilterConntrackTuple;
+
+static PyObject* NetfilterConntrackTuple_new (PyTypeObject* type, PyTupleObject* args) {
+    NetfilterConntrackTuple* self;
+    self = (NetfilterConntrackTuple*) type->tp_alloc(type, 0);
+    self->tuple = NULL;
+    return (PyObject*) self;
+}
+
+static int NetfilterConntrackTuple_init (NetfilterConntrackTuple* self, PyTupleObject* args) {
+    return 0;
+}
+
+static void NetfilterConntrackTuple_dealloc (NetfilterConntrackTuple* self) {
+    Py_TYPE(self)->tp_free((PyObject*) self);
+}
+
+static PyObject* NetfilterConntrackTupleAttributesDict = NULL;
+
+static PyObject* NetfilterConntrackTuple_GetAttr (NetfilterConntrackTuple* self, PyObject* name) {
+    PyObject* dict = NetfilterConntrackTupleAttributesDict;
+    const char* attr_value;
+    uint32_t attr_type;
+    uint8_t attr_size;
+
+    if (_nf_conntrack_attr_spec_dict_get(dict, name, &attr_type, &attr_size)) {
+        attr_value = nfct_get_attr(self->tuple, (enum nf_conntrack_attr) attr_type);
+        return PyString_FromStringAndSize(attr_value, attr_size);
+    }
+
+    return PyObject_GenericGetAttr(self, name);
+}
+
+static int NetfilterConntrackTuple_SetAttr (NetfilterConntrackTuple* self, PyObject* name, PyObject* value) {
+    PyObject* dict = NetfilterConntrackTupleAttributesDict;
+    const char* attr_value;
+    uint32_t attr_type;
+    uint8_t attr_size;
+
+    if (_nf_conntrack_attr_spec_dict_get(dict, name, &attr_type, &attr_size)) {
+        if (!PyString_Check(value)) {
+            PyErr_SetString(PyExc_OSError, "Attribute must be a string");
+            return -1;
+        }
+
+        if (PyString_Size(value) != attr_size) {
+            PyErr_SetString(PyExc_OSError, "Invalid attribute size");
+            return -1;
+        }
+
+        attr_value = PyString_AsString(value);
+        nfct_set_attr(self->tuple, (enum nf_conntrack_attr) attr_type, attr_value);
+
+        return 0;
+    }
+
+    return PyObject_GenericSetAttr(self, name, value);
+}
+
+static _nf_conntrack_attr_spec NetfilterConntrackTupleAttributes [] = {
+    {"ipv4_src", ATTR_IPV4_SRC, sizeof(uint32_t)},
+    {"ipv4_dst", ATTR_IPV4_DST, sizeof(uint32_t)},
+    {"ipv6_src", ATTR_IPV6_SRC, sizeof(uint128_t)},
+    {"ipv6_dst", ATTR_IPV6_DST, sizeof(uint128_t)},
+    {"port_src", ATTR_PORT_SRC, sizeof(uint16_t)},
+    {"port_dst", ATTR_PORT_DST, sizeof(uint16_t)},
+    {"l3proto", ATTR_L3PROTO, sizeof(uint8_t)},
+    {"l4proto", ATTR_L4PROTO, sizeof(uint8_t)},
+    {"icmp_type", ATTR_ICMP_TYPE, sizeof(uint8_t)},
+    {"icmp_code", ATTR_ICMP_CODE, sizeof(uint8_t)},
+    {"icmp_id", ATTR_ICMP_ID, sizeof(uint16_t)},
+    {NULL}
+};
+
+static PyMemberDef NetfilterConntrackTuple_members[] = {
+    {NULL}
+};
+
+static PyMethodDef NetfilterConntrackTuple_methods[] = {
+    {NULL}
+};
+
+static PyTypeObject NetfilterConntrackTupleType = {
+    PyVarObject_HEAD_INIT(NULL, 0)
+    "libnetfilterconntrack.NetfilterConntrackTuple", /* tp_name */
+    sizeof(NetfilterConntrackTuple),                 /* tp_basicsize */
+    0,                                               /* tp_itemsize */
+    (destructor) NetfilterConntrackTuple_dealloc,    /* tp_dealloc */
+    0,                                               /* tp_print */
+    0,                                               /* tp_getattr */
+    0,                                               /* tp_setattr */
+    0,                                               /* tp_compare */
+    0,                                               /* tp_repr */
+    0,                                               /* tp_as_number */
+    0,                                               /* tp_as_sequence */
+    0,                                               /* tp_as_mapping */
+    0,                                               /* tp_hash */
+    0,                                               /* tp_call */
+    0,                                               /* tp_str */
+    (getattrofunc) NetfilterConntrackTuple_GetAttr,  /* tp_getattro */
+    (setattrofunc) NetfilterConntrackTuple_SetAttr,  /* tp_setattro */
+    0,                                               /* tp_as_buffer */
+    Py_TPFLAGS_DEFAULT | Py_TPFLAGS_BASETYPE,        /* tp_flags */
+    "Wrapper for (struct nfct_tuple_head *)",        /* tp_doc */
+    0,                                               /* tp_traverse */
+    0,                                               /* tp_clear */
+    0,                                               /* tp_richcompare */
+    0,                                               /* tp_weaklistoffset */
+    0,                                               /* tp_iter */
+    0,                                               /* tp_iternext */
+    NetfilterConntrackTuple_methods,                 /* tp_methods */
+    NetfilterConntrackTuple_members,                 /* tp_members */
+    0,                                               /* tp_getset */
+    0,                                               /* tp_base */
+    0,                                               /* tp_dict */
+    0,                                               /* tp_descr_get */
+    0,                                               /* tp_descr_set */
+    0,                                               /* tp_dictoffset */
+    (initproc) NetfilterConntrackTuple_init,         /* tp_init */
+    0,                                               /* tp_alloc */
+    (newfunc) NetfilterConntrackTuple_new,           /* tp_new */
+};
+
+// END: NetfilterConntrackTuple
 
 // BEGIN: NetfilterConntrackConntrack
 
@@ -193,6 +321,7 @@ static _nf_conntrack_attr_spec NetfilterConntrackConntrackAttributes [] = {
     {"sctp_state", ATTR_SCTP_STATE, sizeof(uint8_t)},
     {"sctp_vtag_orig", ATTR_SCTP_VTAG_ORIG, sizeof(uint32_t)},
     {"sctp_vtag_repl", ATTR_SCTP_VTAG_REPL, sizeof(uint32_t)},
+    {"helper_name", ATTR_HELPER_NAME, NFCT_HELPER_NAME_MAX},
     {"dccp_state", ATTR_DCCP_STATE, sizeof(uint8_t)},
     {"dccp_role", ATTR_DCCP_ROLE, sizeof(uint8_t)},
     {"dccp_handshake_seq", ATTR_DCCP_HANDSHAKE_SEQ, sizeof(uint64_t)},
@@ -334,10 +463,83 @@ static _nf_conntrack_attr_spec NetfilterConntrackExpectAttributes [] = {
     {"timeout", ATTR_EXP_TIMEOUT, sizeof(uint32_t)},
     {"zone", ATTR_EXP_ZONE, sizeof(uint16_t)},
     {"flags", ATTR_EXP_FLAGS, sizeof(uint32_t)},
-    {"class", ATTR_EXP_CLASS, sizeof(uint32_t)},
+    {"helper_name", ATTR_EXP_HELPER_NAME, NFCT_HELPER_NAME_MAX},
+    {"exp_class", ATTR_EXP_CLASS, sizeof(uint32_t)},
     {"nat_dir", ATTR_EXP_NAT_DIR, sizeof(uint8_t)},
     {NULL}
 };
+
+static PyObject* NetfilterConntrackExpect_master (NetfilterConntrackExpect* self) {
+    PyObject* empty;
+    NetfilterConntrackTuple* tuple;
+
+    empty = PyTuple_New(0);
+    tuple = (NetfilterConntrackTuple*) PyObject_CallObject((PyObject*) &NetfilterConntrackTupleType, empty);
+    Py_DECREF(empty);
+
+    tuple->tuple = (struct nf_conntrack*) nfexp_get_attr(self->expect, (enum nf_expect_attr) ATTR_EXP_MASTER);
+    if (!tuple->tuple) {
+        Py_DECREF(tuple);
+        PyErr_SetString(PyExc_OSError, "Unable to retrieve nfct tuple");
+        return NULL;
+    }
+
+    return tuple;
+}
+
+static PyObject* NetfilterConntrackExpect_expected (NetfilterConntrackExpect* self) {
+    PyObject* empty;
+    NetfilterConntrackTuple* tuple;
+
+    empty = PyTuple_New(0);
+    tuple = (NetfilterConntrackTuple*) PyObject_CallObject((PyObject*) &NetfilterConntrackTupleType, empty);
+    Py_DECREF(empty);
+
+    tuple->tuple = (struct nf_conntrack*) nfexp_get_attr(self->expect, (enum nf_expect_attr) ATTR_EXP_EXPECTED);
+    if (!tuple->tuple) {
+        Py_DECREF(tuple);
+        PyErr_SetString(PyExc_OSError, "Unable to retrieve nfct tuple");
+        return NULL;
+    }
+
+    return tuple;
+}
+
+static PyObject* NetfilterConntrackExpect_mask (NetfilterConntrackExpect* self) {
+    PyObject* empty;
+    NetfilterConntrackTuple* tuple;
+
+    empty = PyTuple_New(0);
+    tuple = (NetfilterConntrackTuple*) PyObject_CallObject((PyObject*) &NetfilterConntrackTupleType, empty);
+    Py_DECREF(empty);
+
+    tuple->tuple = (struct nf_conntrack*) nfexp_get_attr(self->expect, (enum nf_expect_attr) ATTR_EXP_MASK);
+    if (!tuple->tuple) {
+        Py_DECREF(tuple);
+        PyErr_SetString(PyExc_OSError, "Unable to retrieve nfct tuple");
+        return NULL;
+    }
+
+    return tuple;
+}
+
+static PyObject* NetfilterConntrackExpect_nat_tuple (NetfilterConntrackExpect* self) {
+    PyObject* empty;
+    NetfilterConntrackTuple* tuple;
+
+    empty = PyTuple_New(0);
+    tuple = (NetfilterConntrackTuple*) PyObject_CallObject((PyObject*) &NetfilterConntrackTupleType, empty);
+    Py_DECREF(empty);
+
+    tuple->tuple = (struct nf_conntrack*) nfexp_get_attr(self->expect, (enum nf_expect_attr) ATTR_EXP_NAT_TUPLE);
+    if (!tuple->tuple) {
+        Py_DECREF(tuple);
+        PyErr_SetString(PyExc_OSError, "Unable to retrieve nfct tuple");
+        return NULL;
+    }
+
+    return tuple;
+}
 
 static PyObject* NetfilterConntrackExpect_destroy (NetfilterConntrackExpect* self) {
     nfexp_destroy(self->expect);
@@ -350,6 +552,10 @@ static PyMemberDef NetfilterConntrackExpect_members[] = {
 };
 
 static PyMethodDef NetfilterConntrackExpect_methods[] = {
+    {"master", (PyCFunction) NetfilterConntrackExpect_master, METH_NOARGS, NULL},
+    {"expected", (PyCFunction) NetfilterConntrackExpect_expected, METH_NOARGS, NULL},
+    {"mask", (PyCFunction) NetfilterConntrackExpect_mask, METH_NOARGS, NULL},
+    {"nat_tuple", (PyCFunction) NetfilterConntrackExpect_nat_tuple, METH_NOARGS, NULL},
     {"destroy", (PyCFunction) NetfilterConntrackExpect_destroy, METH_NOARGS, NULL},
     {NULL}
 };
@@ -570,7 +776,7 @@ static int NetfilterConntrackHandle_exp_callback (enum nf_conntrack_msg_type typ
     NetfilterConntrackExpect* expect;
 
     PyObject* result_object;
-    int result_value = NFCT_CB_FAILURE;
+    int result_value = NFCT_CB_STOP;
 
     self = (NetfilterConntrackHandle*) data;
 
@@ -581,7 +787,7 @@ static int NetfilterConntrackHandle_exp_callback (enum nf_conntrack_msg_type typ
         expect = (NetfilterConntrackExpect*) PyObject_CallObject((PyObject*) &NetfilterConntrackExpectType, args);
         Py_DECREF(args);
 
-        expect->expect = expect;
+        expect->expect = exp;
         args = PyTuple_Pack(2, type, expect);
         result_object = PyObject_CallObject(self->callback_exp, args);
 
@@ -592,7 +798,6 @@ static int NetfilterConntrackHandle_exp_callback (enum nf_conntrack_msg_type typ
             Py_DECREF(expect);
             Py_DECREF(type);
 
-            PyErr_SetString(PyExc_ValueError, "Callback return value must be an integer");
             return result_value;
         }
 
@@ -833,6 +1038,7 @@ static PyObject* libnetfilterconntrack_ct_new (PyObject* self) {
 
     conntrack->conntrack = nfct_new();
     if (!conntrack->conntrack) {
+        Py_DECREF(conntrack);
         PyErr_SetString(PyExc_OSError, "Call to nfct_new failed");
         return NULL;
     }
@@ -850,6 +1056,7 @@ static PyObject* libnetfilterconntrack_exp_new (PyObject* self) {
 
     expect->expect = nfexp_new();
     if (!expect->expect) {
+        Py_DECREF(expect);
         PyErr_SetString(PyExc_OSError, "Call to nfexp_new failed");
         return NULL;
     }
@@ -895,6 +1102,8 @@ PyMODINIT_FUNC initlibnetfilterconntrack (void) {
     PyObject* module;
     PyObject* attrs;
 
+    if (PyType_Ready(&NetfilterConntrackTupleType) < 0)
+        return;
     if (PyType_Ready(&NetfilterConntrackConntrackType) < 0)
         return;
     if (PyType_Ready(&NetfilterConntrackExpectType) < 0)
@@ -905,6 +1114,9 @@ PyMODINIT_FUNC initlibnetfilterconntrack (void) {
     module = Py_InitModule("libnetfilterconntrack", libnetfilterconntrack_methods);
     if (module == NULL)
         return;
+
+    Py_INCREF((PyObject*) &NetfilterConntrackTupleType);
+    PyModule_AddObject(module, "NetfilterConntrackTuple", (PyObject*) &NetfilterConntrackTupleType);
 
     Py_INCREF((PyObject*) &NetfilterConntrackConntrackType);
     PyModule_AddObject(module, "NetfilterConntrackConntrack", (PyObject*) &NetfilterConntrackConntrackType);
@@ -960,6 +1172,10 @@ PyMODINIT_FUNC initlibnetfilterconntrack (void) {
     PyModule_AddIntConstant(module, "NFCT_Q_DUMP_FILTER_RESET", NFCT_Q_DUMP_FILTER_RESET);
 
     /* Attributes */
+
+    attrs = _nf_conntrack_attr_spec_dict_new(NetfilterConntrackTupleAttributes);
+    PyModule_AddObject(module, "NF_CONNTRACK_ATTR_SPECS_TUPLE", attrs);
+    NetfilterConntrackTupleAttributesDict = attrs;
 
     attrs = _nf_conntrack_attr_spec_dict_new(NetfilterConntrackConntrackAttributes);
     PyModule_AddObject(module, "NF_CONNTRACK_ATTR_SPECS_CT", attrs);
