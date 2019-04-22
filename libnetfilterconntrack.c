@@ -1048,6 +1048,32 @@ static PyObject* libnetfilterconntrack_ct_new (PyObject* self) {
     return conntrack;
 }
 
+static PyObject* libnetfilterconntrack_ct_copy (PyObject* self, PyTupleObject* args) {
+    PyObject* destination_object;
+    PyObject* source_object;
+    unsigned int flags;
+
+    NetfilterConntrackConntrack* destination;
+    NetfilterConntrackConntrack* source;
+
+    if (!PyArg_ParseTuple((PyObject*) args, "OOI", &destination_object, &source_object, &flags)) {
+        PyErr_SetString(PyExc_ValueError, "Parameters must be (NetfilterConntrackConntrack destination, NetfilterConntrackConntrack source, unsigned int flags)");
+        return NULL;
+    }
+
+    if (Py_TYPE(destination_object) != &NetfilterConntrackConntrackType ||
+             Py_TYPE(source_object) != &NetfilterConntrackConntrackType) {
+        PyErr_SetString(PyExc_ValueError, "Parameters must be (NetfilterConntrackConntrack destination, NetfilterConntrackConntrack source, unsigned int flags)");
+        return NULL;
+    }
+
+    destination = (NetfilterConntrackConntrack*) destination_object;
+    source = (NetfilterConntrackConntrack*) source_object;
+    nfct_copy(destination->conntrack, source->conntrack, flags);
+
+    Py_RETURN_NONE;
+}
+
 static PyObject* libnetfilterconntrack_exp_new (PyObject* self) {
     PyObject* empty;
     NetfilterConntrackExpect* expect;
@@ -1064,6 +1090,31 @@ static PyObject* libnetfilterconntrack_exp_new (PyObject* self) {
     }
 
     return expect;
+}
+
+static PyObject* libnetfilterconntrack_exp_copy (PyObject* self, PyTupleObject* args) {
+    PyObject* destination_object;
+    PyObject* source_object;
+
+    NetfilterConntrackExpect* destination;
+    NetfilterConntrackExpect* source;
+
+    if (!PyArg_ParseTuple((PyObject*) args, "OO", &destination_object, &source_object)) {
+        PyErr_SetString(PyExc_ValueError, "Parameters must be (NetfilterConntrackExpect destination, NetfilterConntrackExpect source)");
+        return NULL;
+    }
+
+    if (Py_TYPE(destination_object) != &NetfilterConntrackExpectType ||
+             Py_TYPE(source_object) != &NetfilterConntrackExpectType) {
+        PyErr_SetString(PyExc_ValueError, "Parameters must be (NetfilterConntrackExpect destination, NetfilterConntrackExpect source)");
+        return NULL;
+    }
+
+    destination = (NetfilterConntrackExpect*) destination_object;
+    source = (NetfilterConntrackExpect*) source_object;
+    memcpy(destination->expect, source->expect, nfexp_maxsize());
+
+    Py_RETURN_NONE;
 }
 
 static PyObject* libnetfilterconntrack_open (PyObject* self, PyTupleObject* args) {
@@ -1095,7 +1146,9 @@ static PyObject* libnetfilterconntrack_open (PyObject* self, PyTupleObject* args
 
 static PyMethodDef libnetfilterconntrack_methods[] = {
     {"ct_new", (PyCFunction) libnetfilterconntrack_ct_new, METH_NOARGS, NULL},
+    {"ct_copy", (PyCFunction) libnetfilterconntrack_ct_copy, METH_VARARGS, NULL},
     {"exp_new", (PyCFunction) libnetfilterconntrack_exp_new, METH_NOARGS, NULL},
+    {"exp_copy", (PyCFunction) libnetfilterconntrack_exp_copy, METH_VARARGS, NULL},
     {"open", (PyCFunction) libnetfilterconntrack_open, METH_VARARGS, NULL},
     {NULL}
 };
@@ -1179,6 +1232,15 @@ PyMODINIT_FUNC initlibnetfilterconntrack (void) {
     PyModule_AddIntConstant(module, "NFCT_CB_STOP", NFCT_CB_STOP);
     PyModule_AddIntConstant(module, "NFCT_CB_CONTINUE", NFCT_CB_CONTINUE);
     PyModule_AddIntConstant(module, "NFCT_CB_STOLEN", NFCT_CB_STOLEN);
+
+    /* Copy Flags */
+
+    PyModule_AddIntConstant(module, "NFCT_CP_ALL", NFCT_CP_ALL);
+    PyModule_AddIntConstant(module, "NFCT_CP_ORIG", NFCT_CP_ORIG);
+    PyModule_AddIntConstant(module, "NFCT_CP_REPL", NFCT_CP_REPL);
+    PyModule_AddIntConstant(module, "NFCT_CP_META", NFCT_CP_META);
+    PyModule_AddIntConstant(module, "NFCT_CP_OVERRIDE", NFCT_CP_OVERRIDE);
+
 
     /* Attributes */
 
