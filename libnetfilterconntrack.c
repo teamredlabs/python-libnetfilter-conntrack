@@ -637,7 +637,7 @@ static int NetfilterConntrackHandle_ct_callback (enum nf_conntrack_msg_type type
     NetfilterConntrackConntrack* conntrack;
 
     PyObject* result_object;
-    int result_value = NFCT_CB_STOP;
+    int result_value;
 
     self = (NetfilterConntrackHandle*) data;
 
@@ -649,26 +649,27 @@ static int NetfilterConntrackHandle_ct_callback (enum nf_conntrack_msg_type type
         Py_DECREF(args);
 
         conntrack->conntrack = ct;
+
         args = PyTuple_Pack(2, type, conntrack);
         result_object = PyObject_CallObject(self->callback_ct, args);
-
-        if (!PyInt_Check(result_object)) {
-            Py_DECREF(result_object);
-            Py_DECREF(args);
-
-            Py_DECREF(conntrack);
-            Py_DECREF(type);
-
-            return result_value;
-        }
-
-        result_value = (int) PyInt_AsLong(result_object);
-
-        Py_DECREF(result_object);
         Py_DECREF(args);
 
         Py_DECREF(conntrack);
+
         Py_DECREF(type);
+
+        if (PyErr_Occurred()) {
+            PyErr_PrintEx(1);
+            return NFCT_CB_FAILURE;
+        }
+
+        if (!PyInt_Check(result_object)) {
+            Py_DECREF(result_object);
+            return NFCT_CB_STOP;
+        }
+
+        result_value = (int) PyInt_AsLong(result_object);
+        Py_DECREF(result_object);
     }
 
     return result_value;
@@ -776,7 +777,7 @@ static int NetfilterConntrackHandle_exp_callback (enum nf_conntrack_msg_type typ
     NetfilterConntrackExpect* expect;
 
     PyObject* result_object;
-    int result_value = NFCT_CB_STOP;
+    int result_value;
 
     self = (NetfilterConntrackHandle*) data;
 
@@ -788,26 +789,27 @@ static int NetfilterConntrackHandle_exp_callback (enum nf_conntrack_msg_type typ
         Py_DECREF(args);
 
         expect->expect = exp;
+
         args = PyTuple_Pack(2, type, expect);
         result_object = PyObject_CallObject(self->callback_exp, args);
-
-        if (!PyInt_Check(result_object)) {
-            Py_DECREF(result_object);
-            Py_DECREF(args);
-
-            Py_DECREF(expect);
-            Py_DECREF(type);
-
-            return result_value;
-        }
-
-        result_value = (int) PyInt_AsLong(result_object);
-
-        Py_DECREF(result_object);
         Py_DECREF(args);
 
         Py_DECREF(expect);
+
         Py_DECREF(type);
+
+        if (PyErr_Occurred()) {
+            PyErr_PrintEx(1);
+            return NFCT_CB_FAILURE;
+        }
+
+        if (!PyInt_Check(result_object)) {
+            Py_DECREF(result_object);
+            return NFCT_CB_STOP;
+        }
+
+        result_value = (int) PyInt_AsLong(result_object);
+        Py_DECREF(result_object);
     }
 
     return result_value;
