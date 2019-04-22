@@ -1173,6 +1173,13 @@ PyMODINIT_FUNC initlibnetfilterconntrack (void) {
     PyModule_AddIntConstant(module, "NFCT_Q_DUMP_FILTER", NFCT_Q_DUMP_FILTER);
     PyModule_AddIntConstant(module, "NFCT_Q_DUMP_FILTER_RESET", NFCT_Q_DUMP_FILTER_RESET);
 
+    /* Verdicts */
+
+    PyModule_AddIntConstant(module, "NFCT_CB_FAILURE", NFCT_CB_FAILURE);
+    PyModule_AddIntConstant(module, "NFCT_CB_STOP", NFCT_CB_STOP);
+    PyModule_AddIntConstant(module, "NFCT_CB_CONTINUE", NFCT_CB_CONTINUE);
+    PyModule_AddIntConstant(module, "NFCT_CB_STOLEN", NFCT_CB_STOLEN);
+
     /* Attributes */
 
     attrs = _nf_conntrack_attr_spec_dict_new(NetfilterConntrackTupleAttributes);
