@@ -212,3 +212,80 @@ if conntrack:
     conntrack.destroy()
 
 ```
+
+To dump `conntrack` objects, refer to the following snippet:
+
+```python
+import libnetfilterconntrack
+import socket
+import struct
+
+subsystem = libnetfilterconntrack.NFNL_SUBSYS_CTNETLINK_CT
+
+def callback_ct(nfmsgtype, conntrack):
+    ct_id, = struct.unpack('!I', conntrack.id)
+
+    (orig_l3proto, orig_l4proto,
+     repl_l3proto, repl_l4proto) = \
+        struct.unpack('!BBBB', conntrack.orig_l3proto +
+                               conntrack.orig_l4proto +
+                               conntrack.repl_l3proto +
+                               conntrack.repl_l4proto)
+
+    if orig_l4proto in (socket.IPPROTO_TCP, socket.IPPROTO_UDP):
+
+        orig_ipv4_src = socket.inet_ntoa(conntrack.orig_ipv4_src)
+        orig_ipv4_dst = socket.inet_ntoa(conntrack.orig_ipv4_dst)
+        repl_ipv4_src = socket.inet_ntoa(conntrack.repl_ipv4_src)
+        repl_ipv4_dst = socket.inet_ntoa(conntrack.repl_ipv4_dst)
+
+        (orig_port_src, orig_port_dst,
+         repl_port_src, repl_port_dst) = \
+            struct.unpack('!HHHH', conntrack.orig_port_src +
+                                   conntrack.orig_port_dst +
+                                   conntrack.repl_port_src +
+                                   conntrack.repl_port_dst)
+
+        print ' | '.join(('conntrack', 'id: %s', 'type: %s',
+                          'orig (3: %s, 4: %s): %s:%s => %s:%s',
+                          'repl (3: %s, 4: %s): %s:%s => %s:%s')) % \
+            (ct_id, nfmsgtype,
+             orig_l3proto, orig_l4proto,
+                orig_ipv4_src, orig_port_src,
+                orig_ipv4_dst, orig_port_dst,
+             repl_l3proto, repl_l4proto,
+                repl_ipv4_src, repl_port_src,
+                repl_ipv4_dst, repl_port_dst)
+
+    return libnetfilterconntrack.NFCT_CB_CONTINUE
+
+handle = libnetfilterconntrack.open(subsystem, 0)
+handle.ct_callback_set(libnetfilterconntrack.NFCT_T_ALL, callback_ct)
+
+handle.ct_send(libnetfilterconntrack.NFCT_Q_DUMP, socket.AF_INET)
+
+try:
+    sock = socket.fromfd(handle.fd(),
+                         socket.AF_NETLINK,
+                         socket.SOCK_RAW)
+    sock.settimeout(0)
+    while True:
+        try:
+            data, address = sock.recvfrom(8192)
+            if handle.handle(data, address):
+                continue
+            break
+        except socket.error as e:
+            if e.errno is socket.errno.EWOULDBLOCK:
+                break
+            if e.errno is socket.errno.ENOBUFS:
+                print 'Unable to hold processed packets'
+                continue
+            raise
+finally:
+    sock.close()
+
+handle.ct_callback_clear()
+handle.close()
+
+```
