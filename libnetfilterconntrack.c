@@ -95,6 +95,7 @@ static PyObject* NetfilterConntrackTuple_GetAttr (NetfilterConntrackTuple* self,
 
     if (_nf_conntrack_attr_spec_dict_get(dict, name, &attr_type, &attr_size)) {
         attr_value = nfct_get_attr(self->tuple, (enum nf_conntrack_attr) attr_type);
+        if (!attr_value) Py_RETURN_NONE;
         return PyString_FromStringAndSize(attr_value, attr_size);
     }
 
@@ -225,6 +226,7 @@ static PyObject* NetfilterConntrackConntrack_GetAttr (NetfilterConntrackConntrac
 
     if (_nf_conntrack_attr_spec_dict_get(dict, name, &attr_type, &attr_size)) {
         attr_value = nfct_get_attr(self->conntrack, (enum nf_conntrack_attr) attr_type);
+        if (!attr_value) Py_RETURN_NONE;
         return PyString_FromStringAndSize(attr_value, attr_size);
     }
 
@@ -427,6 +429,7 @@ static PyObject* NetfilterConntrackExpect_GetAttr (NetfilterConntrackExpect* sel
 
     if (_nf_conntrack_attr_spec_dict_get(dict, name, &attr_type, &attr_size)) {
         attr_value = nfexp_get_attr(self->expect, (enum nf_expect_attr) attr_type);
+        if (!attr_value) Py_RETURN_NONE;
         return PyString_FromStringAndSize(attr_value, attr_size);
     }
 
