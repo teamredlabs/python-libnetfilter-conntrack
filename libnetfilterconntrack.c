@@ -911,7 +911,7 @@ static PyObject* NetfilterConntrackHandle_exp_send (NetfilterConntrackHandle* se
 }
 
 static PyObject* NetfilterConntrackHandle_handle (NetfilterConntrackHandle* self, PyTupleObject* args) {
-    PyStringObject* data;
+    PyObject* data;
     unsigned char* data_str;
     unsigned int data_len;
     PyObject* address;
