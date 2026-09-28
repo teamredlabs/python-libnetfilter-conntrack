@@ -1,0 +1,4 @@
+include libnetfilterconntrack.pyi
+include libnetfilterconntrack-stubs/__init__.py
+include README.md
+include LICENSE
